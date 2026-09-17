@@ -11,13 +11,13 @@ from ai_itinerary import generate_ai_itinerary, replan_itinerary
 
 app = FastAPI(title="TripAdapt AI API")
 
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "https://trip-adapt-qenk6aguv-pradnyeelpatil-cloud.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "https://trip-adapt-qenk6aguv-pradnyeelpatil-cloud.vercel.app",
+    "https://trip-adapt-bbjfc30wl-pradnyeelpatil-cloud.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
