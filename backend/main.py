@@ -17,12 +17,12 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:5174",
+        "https://trip-adapt-qenk6aguv-pradnyeelpatil-cloud.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # ==========================================================
 # REQUEST MODELS
