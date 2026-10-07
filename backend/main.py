@@ -18,6 +18,7 @@ app.add_middleware(
     "http://localhost:5174",
     "https://trip-adapt-qenk6aguv-pradnyeelpatil-cloud.vercel.app",
     "https://trip-adapt-bbjfc30wl-pradnyeelpatil-cloud.vercel.app",
+    "https://tripadapt-ai.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
