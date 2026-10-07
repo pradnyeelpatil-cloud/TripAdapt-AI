@@ -19,6 +19,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def get_destination_list(destination):
+    separators = [
+        ",",
+        "→",
+        "->",
+        "\n"
+    ]
+
+    destinations = [destination]
+
+    for separator in separators:
+        new_destinations = []
+
+        for item in destinations:
+            new_destinations.extend(
+                item.split(separator)
+            )
+
+        destinations = new_destinations
+
+    cleaned = []
+
+    for item in destinations:
+
+        item = item.strip()
+
+        if item and item not in cleaned:
+            cleaned.append(item)
+
+    return cleaned
+
 # ==========================================================
 # REQUEST MODELS
 # ==========================================================
@@ -63,7 +94,7 @@ def generate_itinerary(trip: TripRequest):
     print("GENERATING AI ITINERARY")
     print("================================")
 
-    print("Destination:", trip.destination)
+    destinations = get_destination_list(trip.destination)
 
     # --------------------------------
     # GET WEATHER
@@ -71,10 +102,25 @@ def generate_itinerary(trip: TripRequest):
 
     print("\nFetching weather...")
 
-    weather = get_weather(trip.destination)
+    weather_by_destination = {}
 
-    print("WEATHER RESULT:")
-    print(weather)
+    for destination in destinations:
+
+        print(
+            f"\nFetching weather for {destination}..."
+        )
+
+        weather_by_destination[destination] = (
+            get_weather(destination)
+        )
+
+        print("WEATHER RESULT:")
+        print(weather_by_destination[destination])
+
+    weather = weather_by_destination.get(
+        destinations[0],
+        {}
+    )
 
     # --------------------------------
     # GET NEWS
@@ -148,6 +194,7 @@ def generate_itinerary(trip: TripRequest):
         "travelMode": trip.travelMode,
         "days": adaptation["days"],
         "weather": weather,
+        "weather_by_destination": weather_by_destination,
         "news": news,
         "adaptation": {
             "changes": adaptation["changes"],
@@ -168,9 +215,304 @@ def generate_itinerary(trip: TripRequest):
 # ==========================================================
 # REAL-TIME TRIP STATUS
 # ==========================================================
-
 @app.post("/check-trip-status")
 def check_trip_status(trip: TripStatusRequest):
+
+    print("\n================================")
+    print("REAL-TIME TRIP STATUS CHECK")
+    print("================================")
+
+    print(
+        "Destination:",
+        trip.destination
+    )
+
+    # ==========================================================
+    # GET ALL DESTINATIONS
+    # ==========================================================
+
+    destinations = get_destination_list(
+        trip.destination
+    )
+
+    # ==========================================================
+    # FRESH WEATHER FOR EVERY DESTINATION
+    # ==========================================================
+
+    weather_by_destination = {}
+
+    for destination in destinations:
+
+        print(
+            f"\nFetching weather for {destination}..."
+        )
+
+        weather_by_destination[destination] = (
+            get_weather(destination)
+        )
+
+    # Main weather = first destination
+    weather = weather_by_destination[
+        destinations[0]
+    ]
+
+    # ==========================================================
+    # FRESH NEWS
+    # ==========================================================
+
+    news = get_news(
+        trip.destination
+    )
+
+    # ==========================================================
+    # AI / FALLBACK VERIFICATION
+    # ==========================================================
+
+    verification = verify_trip_impact(
+        destination=trip.destination,
+        itinerary_days=trip.itinerary,
+        weather=weather,
+        news=news
+    )
+
+    # ==========================================================
+    # NO IMPACT
+    # ==========================================================
+
+    if not verification.get("affected"):
+
+        return {
+            "success": True,
+            "status": "checked",
+
+            "destination":
+                trip.destination,
+
+            "weather":
+                weather,
+
+            "weather_by_destination":
+                weather_by_destination,
+
+            "news":
+                news,
+
+            "affected":
+                False,
+
+            "severity":
+                "none",
+
+            "affected_days":
+                [],
+
+            "reasons":
+                [],
+
+            "weather_impact":
+                verification.get(
+                    "weather_impact",
+                    False
+                ),
+
+            "news_impact":
+                verification.get(
+                    "news_impact",
+                    False
+                ),
+
+            "changes_required":
+                [],
+
+            "itinerary_changed":
+                False,
+
+            "itinerary":
+                trip.itinerary,
+
+            "verification_method":
+                verification.get(
+                    "verification_method",
+                    "Local fallback"
+                ),
+
+            "message":
+                "Trip checked successfully. "
+                "No significant impact detected."
+        }
+
+    # ==========================================================
+    # IMPACT DETECTED
+    # ==========================================================
+
+    replanned_result = replan_itinerary(
+        destination=trip.destination,
+        itinerary_days=trip.itinerary,
+        weather=weather,
+        news=news,
+        affected_days=
+            verification.get(
+                "affected_days",
+                []
+            ),
+        reasons=
+            verification.get(
+                "reasons",
+                []
+            ),
+        changes_required=
+            verification.get(
+                "changes_required",
+                []
+            )
+    )
+
+    # If replanning fails, DON'T show an error.
+    # Return the original itinerary with the alert.
+
+    if not replanned_result.get("success"):
+
+        return {
+            "success": True,
+            "status": "impact_detected",
+
+            "destination":
+                trip.destination,
+
+            "weather":
+                weather,
+
+            "weather_by_destination":
+                weather_by_destination,
+
+            "news":
+                news,
+
+            "affected":
+                True,
+
+            "severity":
+                verification.get(
+                    "severity",
+                    "medium"
+                ),
+
+            "affected_days":
+                verification.get(
+                    "affected_days",
+                    []
+                ),
+
+            "reasons":
+                verification.get(
+                    "reasons",
+                    []
+                ),
+
+            "weather_impact":
+                verification.get(
+                    "weather_impact",
+                    False
+                ),
+
+            "news_impact":
+                verification.get(
+                    "news_impact",
+                    False
+                ),
+
+            "changes_required":
+                verification.get(
+                    "changes_required",
+                    []
+                ),
+
+            "itinerary_changed":
+                False,
+
+            "itinerary":
+                trip.itinerary,
+
+            "message":
+                "Travel conditions may affect "
+                "your itinerary. Review the alert."
+        }
+
+    # ==========================================================
+    # REPLANNED
+    # ==========================================================
+
+    return {
+        "success": True,
+        "status": "replanned",
+
+        "destination":
+            trip.destination,
+
+        "weather":
+            weather,
+
+        "weather_by_destination":
+            weather_by_destination,
+
+        "news":
+            news,
+
+        "affected":
+            True,
+
+        "severity":
+            verification.get(
+                "severity",
+                "medium"
+            ),
+
+        "affected_days":
+            verification.get(
+                "affected_days",
+                []
+            ),
+
+        "reasons":
+            verification.get(
+                "reasons",
+                []
+            ),
+
+        "weather_impact":
+            verification.get(
+                "weather_impact",
+                False
+            ),
+
+        "news_impact":
+            verification.get(
+                "news_impact",
+                False
+            ),
+
+        "changes_required":
+            verification.get(
+                "changes_required",
+                []
+            ),
+
+        "itinerary_changed":
+            True,
+
+        "itinerary":
+            replanned_result["days"],
+
+        "verification_method":
+            verification.get(
+                "verification_method",
+                "Groq AI"
+            ),
+
+        "message":
+            "Travel conditions affected the itinerary. "
+            "The itinerary was automatically replanned."
+    }
 
     print("\n================================")
     print("REAL-TIME TRIP STATUS CHECK")

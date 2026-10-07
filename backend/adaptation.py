@@ -23,110 +23,77 @@ if API_KEY:
 # GROQ TRIP IMPACT VERIFICATION
 # ==================================================
 
-def verify_trip_impact(
-    destination,
-    itinerary_days,
-    weather,
-    news
-):
+def verify_trip_impact(destination, itinerary_days, weather, news):
     """
-    Uses Groq AI to determine whether fresh weather or news
-    genuinely affects the existing itinerary.
+    Verify whether current weather/news affects the itinerary.
 
-    IMPORTANT:
-    This function does NOT change the itinerary.
-
-    It only verifies:
-    - whether a real impact exists
-    - which days are affected
-    - what caused the impact
-    - why the impact matters
+    Groq is used as the AI verifier.
+    If Groq fails, a local fallback is used so the
+    real-time monitoring system continues working.
     """
 
-    # --------------------------------------------------
-    # Check Groq availability
-    # --------------------------------------------------
+    # ==========================================================
+    # PREPARE WEATHER
+    # ==========================================================
 
-    if not client:
-        return {
-            "success": False,
-            "message": "Groq API key is missing"
-        }
-
-    # --------------------------------------------------
-    # Prepare weather information
-    # --------------------------------------------------
+    weather_info = {}
 
     if weather.get("success"):
-
         weather_info = {
             "temperature": weather.get("temperature"),
             "description": weather.get("description"),
             "humidity": weather.get("humidity"),
-            "wind_speed": weather.get("wind_speed")
+            "wind_speed": weather.get("wind_speed"),
+            "rain": weather.get("rain", 0),
         }
-
     else:
-
         weather_info = {
-            "status": "unavailable",
-            "message": weather.get(
-                "message",
-                "Weather information unavailable."
-            )
+            "status": "unavailable"
         }
 
-    # --------------------------------------------------
-    # Prepare news information
-    # --------------------------------------------------
+    # ==========================================================
+    # PREPARE NEWS
+    # ==========================================================
 
     news_articles = []
 
     if news.get("success"):
-
         for article in news.get("articles", []):
-
             news_articles.append({
-                "title": article.get("title"),
-                "description": article.get("description"),
-                "url": article.get("url"),
-                "publishedAt": article.get("publishedAt")
+                "title": article.get("title", ""),
+                "description": article.get("description", ""),
+                "url": article.get("url", ""),
+                "publishedAt": article.get("publishedAt", "")
             })
 
-    # --------------------------------------------------
-    # Prepare itinerary
-    # --------------------------------------------------
+    # ==========================================================
+    # TRY GROQ AI
+    # ==========================================================
 
-    itinerary_text = json.dumps(
-        itinerary_days,
-        indent=2,
-        ensure_ascii=False
-    )
+    if client:
 
-    news_text = json.dumps(
-        news_articles,
-        indent=2,
-        ensure_ascii=False
-    )
+        try:
 
-    weather_text = json.dumps(
-        weather_info,
-        indent=2,
-        ensure_ascii=False
-    )
+            itinerary_text = json.dumps(
+                itinerary_days,
+                indent=2,
+                ensure_ascii=False
+            )
 
-    # --------------------------------------------------
-    # Groq prompt
-    # --------------------------------------------------
+            news_text = json.dumps(
+                news_articles,
+                indent=2,
+                ensure_ascii=False
+            )
 
-    prompt = f"""
-You are a travel itinerary impact verification AI.
+            weather_text = json.dumps(
+                weather_info,
+                indent=2,
+                ensure_ascii=False
+            )
 
-Your job is NOT to automatically change the itinerary.
-
-Your job is to carefully determine whether the CURRENT weather
-or RECENT destination-related news genuinely affects the existing
-travel itinerary.
+            prompt = f"""
+You are a travel impact verification AI.
 
 Destination:
 {destination}
@@ -140,53 +107,25 @@ RECENT NEWS:
 CURRENT ITINERARY:
 {itinerary_text}
 
+Determine whether the current weather or recent news
+genuinely affects the travel itinerary.
 
-IMPORTANT RULES:
+Rules:
 
-1. Compare the weather and news against the ACTUAL itinerary.
+- Normal weather = no impact.
+- Light rain = usually no impact.
+- Heavy rain can affect outdoor activities.
+- Severe weather can affect travel.
+- A real attraction closure can affect the itinerary.
+- A genuine road closure can affect travel.
+- Unrelated news must not trigger an alert.
+- Do not invent facts.
+- Do not automatically change the itinerary.
+- Only identify whether a change is required.
 
-2. Do NOT mark something as an impact simply because it contains
-   words such as:
-   road, weather, temple, tourism, traffic, travel, rain, etc.
+Return ONLY JSON.
 
-3. News must be genuinely relevant to the destination AND
-   reasonably connected to something in the itinerary.
-
-4. Do not assume that a news article affects the trip unless
-   the article provides a meaningful reason.
-
-5. Normal weather should NOT trigger a change.
-
-6. Light rain should not automatically trigger a change.
-   Consider whether the affected activity is actually outdoor.
-
-7. A road closure should only affect the itinerary if the road
-   or route is reasonably connected to a planned activity.
-
-8. A closure of a tourist attraction should affect the itinerary
-   if that attraction is actually planned.
-
-9. General political, economic, promotional, ceremonial or
-   unrelated destination news should NOT trigger a change.
-
-10. Do not invent facts.
-
-11. Do not assume an article is true beyond the information
-    provided in the article.
-
-12. If there is no genuine impact, return affected=false.
-
-13. If there is a genuine impact, identify the specific itinerary
-    day or days affected.
-
-14. Explain exactly what information caused the impact.
-
-15. Do NOT generate a replacement itinerary yet.
-
-
-Return ONLY valid JSON.
-
-Use EXACTLY this structure:
+Use:
 
 {{
     "affected": false,
@@ -197,150 +136,286 @@ Use EXACTLY this structure:
     "news_impact": false,
     "changes_required": []
 }}
-
-If there IS a genuine impact, use:
-
-{{
-    "affected": true,
-    "severity": "medium",
-    "affected_days": [2],
-    "reasons": [
-        "Heavy rain is likely to affect the outdoor activity planned for Day 2."
-    ],
-    "weather_impact": true,
-    "news_impact": false,
-    "changes_required": [
-        "Day 2 outdoor activity may need to be replaced or moved."
-    ]
-}}
-
-Severity must be one of:
-
-"none"
-"low"
-"medium"
-"high"
 """
 
-    # --------------------------------------------------
-    # Call Groq
-    # --------------------------------------------------
-
-    try:
-
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a careful travel impact "
-                        "verification AI. Return only valid JSON."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": prompt
+            response = client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a careful travel impact "
+                            "verification AI. Return valid JSON only."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0,
+                response_format={
+                    "type": "json_object"
                 }
-            ],
-            temperature=0.1,
-            response_format={
-                "type": "json_object"
+            )
+
+            raw_text = (
+                response.choices[0]
+                .message.content
+                .strip()
+            )
+
+            result = json.loads(raw_text)
+
+            return {
+                "success": True,
+                "affected": bool(
+                    result.get("affected", False)
+                ),
+                "severity": result.get(
+                    "severity",
+                    "none"
+                ),
+                "affected_days": result.get(
+                    "affected_days",
+                    []
+                ),
+                "reasons": result.get(
+                    "reasons",
+                    []
+                ),
+                "weather_impact": bool(
+                    result.get(
+                        "weather_impact",
+                        False
+                    )
+                ),
+                "news_impact": bool(
+                    result.get(
+                        "news_impact",
+                        False
+                    )
+                ),
+                "changes_required": result.get(
+                    "changes_required",
+                    []
+                ),
+                "verification_method": "Groq AI"
             }
+
+        except Exception as error:
+
+            print(
+                "\nGROQ VERIFICATION ERROR:"
+            )
+            print(str(error))
+
+    # ==========================================================
+    # LOCAL FALLBACK
+    # ==========================================================
+
+    print(
+        "\nUsing local travel impact verification fallback."
+    )
+
+    reasons = []
+    affected_days = []
+    changes_required = []
+
+    weather_impact = False
+    news_impact = False
+
+    # ----------------------------------------------------------
+    # WEATHER FALLBACK
+    # ----------------------------------------------------------
+
+    if weather.get("success"):
+
+        rain = float(
+            weather.get("rain", 0) or 0
         )
 
-        text = response.choices[0].message.content.strip()
-
-        # --------------------------------------------------
-        # Convert response to JSON
-        # --------------------------------------------------
-
-        result = json.loads(text)
-
-        # --------------------------------------------------
-        # Validate important fields
-        # --------------------------------------------------
-
-        affected = bool(
-            result.get("affected", False)
+        wind = float(
+            weather.get("wind_speed", 0) or 0
         )
 
-        severity = result.get(
-            "severity",
-            "none"
+        description = str(
+            weather.get(
+                "description",
+                ""
+            )
+        ).lower()
+
+        severe_weather = (
+            rain >= 15
+            or wind >= 50
+            or "thunderstorm" in description
+            or "heavy rain" in description
         )
 
-        affected_days = result.get(
-            "affected_days",
-            []
+        warning_weather = (
+            rain >= 5
+            or wind >= 30
         )
 
-        reasons = result.get(
-            "reasons",
-            []
+        if severe_weather:
+
+            weather_impact = True
+
+            affected_days = [
+                day.get("day")
+                for day in itinerary_days
+                if day.get("day") is not None
+            ]
+
+            reasons.append(
+                "Current weather conditions may significantly "
+                "affect outdoor travel activities."
+            )
+
+            changes_required.append(
+                "Outdoor activities should be reviewed "
+                "and safer alternatives considered."
+            )
+
+        elif warning_weather:
+
+            weather_impact = True
+
+            affected_days = [
+                day.get("day")
+                for day in itinerary_days
+                if day.get("day") is not None
+            ]
+
+            reasons.append(
+                "Current weather conditions may affect "
+                "some outdoor activities."
+            )
+
+            changes_required.append(
+                "Keep outdoor activities flexible."
+            )
+
+    # ----------------------------------------------------------
+    # NEWS FALLBACK
+    # ----------------------------------------------------------
+
+    disruption_words = [
+        "closure",
+        "closed",
+        "road blocked",
+        "road closure",
+        "landslide",
+        "flood",
+        "flooding",
+        "heavy rain",
+        "cyclone",
+        "strike",
+        "protest",
+        "traffic restriction"
+    ]
+
+    destination_lower = destination.lower()
+
+    for article in news_articles:
+
+        title = str(
+            article.get("title", "")
+        ).lower()
+
+        description = str(
+            article.get("description", "")
+        ).lower()
+
+        article_text = (
+            title + " " + description
         )
 
-        changes_required = result.get(
-            "changes_required",
-            []
+        destination_match = (
+            destination_lower in article_text
         )
 
-        # --------------------------------------------------
-        # Safety correction
-        # --------------------------------------------------
+        disruption_match = any(
+            word in article_text
+            for word in disruption_words
+        )
 
-        if not affected:
+        if (
+            destination_match
+            and disruption_match
+        ):
 
-            severity = "none"
-            affected_days = []
-            reasons = []
-            changes_required = []
+            news_impact = True
 
-        # --------------------------------------------------
-        # Final verification result
-        # --------------------------------------------------
+            if not affected_days:
+                affected_days = [
+                    day.get("day")
+                    for day in itinerary_days
+                    if day.get("day") is not None
+                ]
+
+            reasons.append(
+                "Recent destination-related news "
+                "indicates a possible travel disruption."
+            )
+
+            changes_required.append(
+                "Review activities or routes related "
+                "to the reported disruption."
+            )
+
+            break
+
+    # ==========================================================
+    # FINAL FALLBACK RESULT
+    # ==========================================================
+
+    affected = (
+        weather_impact
+        or news_impact
+    )
+
+    if not affected:
 
         return {
             "success": True,
-            "affected": affected,
-            "severity": severity,
-            "affected_days": affected_days,
-            "reasons": reasons,
-            "weather_impact": bool(
-                result.get("weather_impact", False)
-            ),
-            "news_impact": bool(
-                result.get("news_impact", False)
-            ),
-            "changes_required": changes_required
+            "affected": False,
+            "severity": "none",
+            "affected_days": [],
+            "reasons": [],
+            "weather_impact": False,
+            "news_impact": False,
+            "changes_required": [],
+            "verification_method": "Local fallback"
         }
 
-    except json.JSONDecodeError:
+    severity = "medium"
 
-        print(
-            "Groq returned invalid JSON during "
-            "trip impact verification."
+    if weather.get("success"):
+
+        rain = float(
+            weather.get("rain", 0) or 0
         )
 
-        return {
-            "success": False,
-            "message": "Groq returned an invalid verification format"
-        }
-
-    except Exception as error:
-
-        print(
-            "Groq trip impact verification error:"
+        wind = float(
+            weather.get("wind_speed", 0) or 0
         )
 
-        print(error)
+        if rain >= 15 or wind >= 50:
+            severity = "high"
 
-        return {
-            "success": False,
-            "message": "Unable to verify trip impact using Groq"
-        }
-
-
+    return {
+        "success": True,
+        "affected": True,
+        "severity": severity,
+        "affected_days": affected_days,
+        "reasons": reasons,
+        "weather_impact": weather_impact,
+        "news_impact": news_impact,
+        "changes_required": changes_required,
+        "verification_method": "Local fallback"
+    }
 # ==================================================
 # OLD ADAPTATION FUNCTION
 # ==================================================
