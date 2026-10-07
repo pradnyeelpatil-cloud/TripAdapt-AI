@@ -2,7 +2,7 @@ import os
 import json
 
 from dotenv import load_dotenv
-from google import genai
+from groq import Groq
 
 
 # ==================================================
@@ -11,16 +11,16 @@ from google import genai
 
 load_dotenv()
 
-API_KEY = os.getenv("GEMINI_API_KEY")
+API_KEY = os.getenv("GROQ_API_KEY")
 
 client = None
 
 if API_KEY:
-    client = genai.Client(api_key=API_KEY)
+    client = Groq(api_key=API_KEY)
 
 
 # ==================================================
-# GEMINI TRIP IMPACT VERIFICATION
+# GROQ TRIP IMPACT VERIFICATION
 # ==================================================
 
 def verify_trip_impact(
@@ -30,7 +30,7 @@ def verify_trip_impact(
     news
 ):
     """
-    Uses Gemini to determine whether fresh weather or news
+    Uses Groq AI to determine whether fresh weather or news
     genuinely affects the existing itinerary.
 
     IMPORTANT:
@@ -43,17 +43,15 @@ def verify_trip_impact(
     - why the impact matters
     """
 
-
     # --------------------------------------------------
-    # Check Gemini availability
+    # Check Groq availability
     # --------------------------------------------------
 
     if not client:
         return {
             "success": False,
-            "message": "Gemini API key is missing"
+            "message": "Groq API key is missing"
         }
-
 
     # --------------------------------------------------
     # Prepare weather information
@@ -78,7 +76,6 @@ def verify_trip_impact(
             )
         }
 
-
     # --------------------------------------------------
     # Prepare news information
     # --------------------------------------------------
@@ -95,7 +92,6 @@ def verify_trip_impact(
                 "url": article.get("url"),
                 "publishedAt": article.get("publishedAt")
             })
-
 
     # --------------------------------------------------
     # Prepare itinerary
@@ -119,9 +115,8 @@ def verify_trip_impact(
         ensure_ascii=False
     )
 
-
     # --------------------------------------------------
-    # Gemini prompt
+    # Groq prompt
     # --------------------------------------------------
 
     prompt = f"""
@@ -227,47 +222,40 @@ Severity must be one of:
 "high"
 """
 
-
     # --------------------------------------------------
-    # Call Gemini
+    # Call Groq
     # --------------------------------------------------
 
     try:
 
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=prompt
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a careful travel impact "
+                        "verification AI. Return only valid JSON."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.1,
+            response_format={
+                "type": "json_object"
+            }
         )
 
-
-        text = response.text.strip()
-
-
-        # --------------------------------------------------
-        # Remove markdown JSON fences if Gemini adds them
-        # --------------------------------------------------
-
-        if text.startswith("```"):
-
-            text = text.replace(
-                "```json",
-                ""
-            )
-
-            text = text.replace(
-                "```",
-                ""
-            )
-
-            text = text.strip()
-
+        text = response.choices[0].message.content.strip()
 
         # --------------------------------------------------
         # Convert response to JSON
         # --------------------------------------------------
 
         result = json.loads(text)
-
 
         # --------------------------------------------------
         # Validate important fields
@@ -297,7 +285,6 @@ Severity must be one of:
             []
         )
 
-
         # --------------------------------------------------
         # Safety correction
         # --------------------------------------------------
@@ -308,7 +295,6 @@ Severity must be one of:
             affected_days = []
             reasons = []
             changes_required = []
-
 
         # --------------------------------------------------
         # Final verification result
@@ -329,31 +315,29 @@ Severity must be one of:
             "changes_required": changes_required
         }
 
-
     except json.JSONDecodeError:
 
         print(
-            "Gemini returned invalid JSON during "
+            "Groq returned invalid JSON during "
             "trip impact verification."
         )
 
         return {
             "success": False,
-            "message": "Gemini returned an invalid verification format"
+            "message": "Groq returned an invalid verification format"
         }
-
 
     except Exception as error:
 
         print(
-            "Gemini trip impact verification error:"
+            "Groq trip impact verification error:"
         )
 
         print(error)
 
         return {
             "success": False,
-            "message": "Unable to verify trip impact using Gemini"
+            "message": "Unable to verify trip impact using Groq"
         }
 
 
